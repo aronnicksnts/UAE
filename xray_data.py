@@ -9,9 +9,11 @@ from tqdm import tqdm
 from torchvision import transforms, datasets
 from torch.utils import data
 
-DATA_PATH = '/media/user/disk/'
+DATA_PATH = 'datasets'
 
+# Not really used
 def read_data():
+    # Where dataset is found
     path = DATA_PATH + 'rsna-pneumonia-detection-challenge/'
     sub_path = 'stage_2_train_images/'
     csv = pandas.read_csv(path + 'stage_2_detailed_class_info.csv')
@@ -68,7 +70,7 @@ class Xray(data.Dataset):
         return len(self.slices)
 
 
-def get_xray_dataloader(bs, workers, dtype='train', img_size=64, dataset='rsna'):
+def get_xray_dataloader(bs, workers, dtype='train', img_size=64, dataset='dataset_1'):
     
     transform = transforms.Compose([
         transforms.Resize(img_size),
@@ -76,10 +78,7 @@ def get_xray_dataloader(bs, workers, dtype='train', img_size=64, dataset='rsna')
         transforms.Normalize((0.5,), (0.5,))
     ])
 
-    if dataset == 'rsna':
-        path = DATA_PATH + 'rsna-pneumonia-detection-challenge/'
-    elif dataset == 'pedia':
-        path = DATA_PATH + 'pediatric/'
+    path = f"{DATA_PATH}/{dataset}/"
 
     path += dtype
     
