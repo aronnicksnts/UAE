@@ -11,35 +11,6 @@ from torch.utils import data
 
 DATA_PATH = 'datasets'
 
-# Not really used
-def read_data():
-    # Where dataset is found
-    path = DATA_PATH + 'rsna-pneumonia-detection-challenge/'
-    sub_path = 'stage_2_train_images/'
-    csv = pandas.read_csv(path + 'stage_2_detailed_class_info.csv')
-    class_label = {'Normal': 0,
-                   'No Lung Opacity / Not Normal': 1, 'Lung Opacity': 2}
-    patient_dict = {}
-    for i in range(csv.shape[0]):
-        name = csv['patientId'][i]
-        target = csv['class'][i]
-        target = class_label[target]
-        patient_dict[name] = target
-
-    for file_name in tqdm(os.listdir(path + sub_path)):
-        patient = file_name.split('.')[0]
-        target = patient_dict[patient]
-        if target == 0:
-            os.system('cp {}{}{} {}{}'.format(
-                path, sub_path, file_name, path, 'normal/'))
-        if target == 1:
-            os.system('cp {}{}{} {}{}'.format(
-                path, sub_path, file_name, path, 'not_normal/'))
-        if target == 2:
-            os.system('cp {}{}{} {}{}'.format(
-                path, sub_path, file_name, path, 'lung_opacity/'))
-
-
 class Xray(data.Dataset):
     def __init__(self, main_path, img_size=64, transform=None):
         super(Xray, self).__init__()
