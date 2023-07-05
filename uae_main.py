@@ -16,6 +16,7 @@ from tensorboardX import SummaryWriter
 from torchvision.utils import save_image
 
 
+
 WORKERS = 4
 DATASET = ['dataset_1', 'dataset_2', 'dataset_3', 'dataset_4', 'dataset_5']
 torch.backends.cudnn.benchmark = True
@@ -25,7 +26,6 @@ np.random.seed(0)
 
 def train(opt):
     # Sets the device to cuda
-    opt.dataset = DATASET[opt.dataset]
     device = torch.device('cuda:{}'.format(opt.cuda))
     torch.cuda.set_device('cuda:{}'.format(opt.cuda))
     opt.device = device
@@ -36,9 +36,9 @@ def train(opt):
     EPOCHS = opt.epochs
     # Loads the data, loader is the training data, test_loader is the testing data
     loader = xray_data.get_xray_dataloader(
-        opt.batchsize, WORKERS, 'train', img_size=opt.image_size, dataset=opt.dataset)
+        opt.batchsize, WORKERS, 'train', img_size=opt.image_size, dataset=DATASET[opt.dataset])
     test_loader = xray_data.get_xray_dataloader(
-        opt.batchsize, WORKERS, 'test', img_size=opt.image_size, dataset=opt.dataset)
+        opt.batchsize, WORKERS, 'test', img_size=opt.image_size, dataset=DATASET[opt.dataset])
 
     opt.epochs = EPOCHS
     train_loop(model, loader, test_loader, opt)
@@ -111,6 +111,9 @@ def train_loop(model, loader, test_loader, opt):
 def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name="test"):
     # Loads the model and data
     if model is None:
+        device = torch.device('cuda:{}'.format(opt.cuda))
+        torch.cuda.set_device('cuda:{}'.format(opt.cuda))
+        opt.device = device
         model = models.AE(opt.ls, opt.mp, opt.u,
                                 img_size=opt.image_size, vae=vae).to(opt.device)
         model.load_state_dict(torch.load(
@@ -153,12 +156,21 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
                      density=True, color='blue', alpha=0.5)
             plt.hist(y_score[y_true == 1], bins=20,
                      density=True, color='red', alpha=0.5)
+            # Create legend
+            labels = ['Normal', 'Abnormal']
+            plt.legend(labels)
+            plt.title("Histogram of Abnormality Scores")
+            plt.xlabel("Abnormality Score")
             plt.savefig(f"images/{plot_name}_hist.png", dpi=300, bbox_inches='tight')
+            plt.clf()
+
+
             fpr, tpr, thresholds = metrics.roc_curve(y_true, y_score)
             plt.plot(fpr, tpr)
             plt.plot([0, 1], [0, 1], 'k--')
             plt.xlabel('False Positive Rate')
             plt.ylabel('True Positive Rate')
+            plt.title('ROC Curve')
             plt.savefig(f"images/{plot_name}_fprtpr.png", dpi=300, bbox_inches='tight')
         return auc
 
