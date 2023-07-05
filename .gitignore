@@ -2,3 +2,4 @@ datasets/
 images/
 models/
 log/
+__pycache__/
