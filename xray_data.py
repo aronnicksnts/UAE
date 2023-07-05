@@ -59,7 +59,3 @@ def get_xray_dataloader(bs, workers, dtype='train', img_size=64, dataset='datase
                                  drop_last=train_flag, num_workers=workers, pin_memory=True)
 
     return dataloader
-
-
-if __name__ == '__main__':
-    read_data()
