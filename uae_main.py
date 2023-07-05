@@ -18,7 +18,6 @@ from torchvision.utils import save_image
 
 
 WORKERS = 4
-DATASET = ['dataset_1', 'dataset_2', 'dataset_3', 'dataset_4', 'dataset_5']
 torch.backends.cudnn.benchmark = True
 torch.manual_seed(0)
 np.random.seed(0)
@@ -36,9 +35,9 @@ def train(opt):
     EPOCHS = opt.epochs
     # Loads the data, loader is the training data, test_loader is the testing data
     loader = xray_data.get_xray_dataloader(
-        opt.batchsize, WORKERS, 'train', img_size=opt.image_size, dataset=DATASET[opt.dataset])
+        opt.batchsize, WORKERS, 'train', img_size=opt.image_size, dataset=opt.dataset)
     test_loader = xray_data.get_xray_dataloader(
-        opt.batchsize, WORKERS, 'test', img_size=opt.image_size, dataset=DATASET[opt.dataset])
+        opt.batchsize, WORKERS, 'test', img_size=opt.image_size, dataset=opt.dataset)
 
     opt.epochs = EPOCHS
     train_loop(model, loader, test_loader, opt)
@@ -120,7 +119,7 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
             './models/{}.pth'.format(opt.exp)))
     if loader is None:
         loader = xray_data.get_xray_dataloader(
-            1, WORKERS, 'test', dataset=DATASET[opt.dataset], img_size=opt.image_size)
+            1, WORKERS, 'test', dataset=opt.dataset, img_size=opt.image_size)
 
     model.eval()
     with torch.no_grad():
