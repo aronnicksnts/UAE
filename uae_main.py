@@ -28,6 +28,7 @@ def train(opt):
     opt.dataset = DATASET[opt.dataset]
     device = torch.device('cuda:{}'.format(opt.cuda))
     torch.cuda.set_device('cuda:{}'.format(opt.cuda))
+    opt.device = device
     
     model = models.AE(opt.ls, opt.mp, opt.u, img_size=opt.image_size)
     model.to(device)
@@ -107,7 +108,7 @@ def train_loop(model, loader, test_loader, opt):
 
 
 # Tests the model
-def test_for_xray(opt, model=None, loader=None, plot=False, vae=False):
+def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name="test"):
     # Loads the model and data
     if model is None:
         model = models.AE(opt.ls, opt.mp, opt.u,
@@ -148,18 +149,17 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False):
         print('AUC', auc)
         if plot:
             metrics_at_eer(y_score, y_true)
-            plt.figure()
             plt.hist(y_score[y_true == 0], bins=20,
                      density=True, color='blue', alpha=0.5)
             plt.hist(y_score[y_true == 1], bins=20,
                      density=True, color='red', alpha=0.5)
-            plt.figure()
+            plt.savefig(f"images/{plot_name}_hist.png", dpi=300, bbox_inches='tight')
             fpr, tpr, thresholds = metrics.roc_curve(y_true, y_score)
             plt.plot(fpr, tpr)
             plt.plot([0, 1], [0, 1], 'k--')
             plt.xlabel('False Positive Rate')
             plt.ylabel('True Positive Rate')
-            plt.show()
+            plt.savefig(f"images/{plot_name}_fprtpr.png", dpi=300, bbox_inches='tight')
         return auc
 
 # Calculates the metrics at the equal error rate
