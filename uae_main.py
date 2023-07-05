@@ -23,30 +23,21 @@ torch.manual_seed(0)
 np.random.seed(0)
 
 
-def train(ls = 16, mp = 1, u = True, epochs = 250, cuda = 0, exp = 'ae', dataset=4, image_size = 64, batchsize = 64):
-    # Set up the arguments for the model
-    opt = ArgumentParser()
-    opt.ls = ls
-    opt.mp = mp
-    opt.u = u
-    opt.cuda = cuda
-    opt.exp = exp
-    opt.dataset = DATASET[dataset]
+def train(opt):
+    # Sets the device to cuda
+    opt.dataset = DATASET[opt.dataset]
     device = torch.device('cuda:{}'.format(opt.cuda))
     torch.cuda.set_device('cuda:{}'.format(opt.cuda))
-    opt.device = device
-    opt.img_size = image_size
-    opt.batchsize = batchsize
     
-    model = models.AE(opt.ls, opt.mp, opt.u, img_size=opt.img_size)
+    model = models.AE(opt.ls, opt.mp, opt.u, img_size=opt.image_size)
     model.to(device)
 
-    EPOCHS = epochs
+    EPOCHS = opt.epochs
     # Loads the data, loader is the training data, test_loader is the testing data
     loader = xray_data.get_xray_dataloader(
-        opt.batchsize, WORKERS, 'train', img_size=opt.img_size, dataset=opt.dataset)
+        opt.batchsize, WORKERS, 'train', img_size=opt.image_size, dataset=opt.dataset)
     test_loader = xray_data.get_xray_dataloader(
-        opt.batchsize, WORKERS, 'test', img_size=opt.img_size, dataset=opt.dataset)
+        opt.batchsize, WORKERS, 'test', img_size=opt.image_size, dataset=opt.dataset)
 
     opt.epochs = EPOCHS
     train_loop(model, loader, test_loader, opt)
