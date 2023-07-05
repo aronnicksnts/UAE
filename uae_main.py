@@ -16,24 +16,37 @@ from tensorboardX import SummaryWriter
 from torchvision.utils import save_image
 
 
-BATCH_SIZE = 64
 WORKERS = 4
-IMG_SIZE = 64
-DATASET = ['rsna', 'pedia']
+DATASET = ['dataset_1', 'dataset_2', 'dataset_3', 'dataset_4', 'dataset_5']
 torch.backends.cudnn.benchmark = True
 torch.manual_seed(0)
 np.random.seed(0)
 
 
-def train():
-    model = models.AE(opt.ls, opt.mp, opt.u, img_size=IMG_SIZE)
+def train(ls = 16, mp = 1, u = True, epochs = 250, cuda = 0, exp = 'ae', dataset=4, image_size = 64, batchsize = 64):
+    # Set up the arguments for the model
+    opt = ArgumentParser()
+    opt.ls = ls
+    opt.mp = mp
+    opt.u = u
+    opt.cuda = cuda
+    opt.exp = exp
+    opt.dataset = DATASET[dataset]
+    device = torch.device('cuda:{}'.format(opt.cuda))
+    torch.cuda.set_device('cuda:{}'.format(opt.cuda))
+    opt.device = device
+    opt.img_size = image_size
+    opt.batchsize = batchsize
+    
+    model = models.AE(opt.ls, opt.mp, opt.u, img_size=opt.img_size)
     model.to(device)
 
-    EPOCHS = 250
+    EPOCHS = epochs
+    # Loads the data, loader is the training data, test_loader is the testing data
     loader = xray_data.get_xray_dataloader(
-        BATCH_SIZE, WORKERS, 'train', img_size=IMG_SIZE, dataset=DATASET)
+        opt.batchsize, WORKERS, 'train', img_size=opt.img_size, dataset=opt.dataset)
     test_loader = xray_data.get_xray_dataloader(
-        BATCH_SIZE, WORKERS, 'test', img_size=IMG_SIZE, dataset=DATASET)
+        opt.batchsize, WORKERS, 'test', img_size=opt.img_size, dataset=opt.dataset)
 
     opt.epochs = EPOCHS
     train_loop(model, loader, test_loader, opt)
@@ -44,19 +57,25 @@ def train_loop(model, loader, test_loader, opt):
     print(opt.exp)
     optim = torch.optim.Adam(model.parameters(), 5e-4, betas=(0.5, 0.999))
     writer = SummaryWriter('log/%s' % opt.exp)
+    # Trains the data for each epoch
     for e in tqdm(range(opt.epochs)):
         l1s, l2s = [], []
         model.train()
+        # Trains the data for each batch
         for (x, _) in tqdm(loader):
             x = x.to(device)
             x.requires_grad = False
+            # Uses the VAE to reconstruct the data
             if not opt.u:
                 out = model(x)
                 rec_err = (out - x) ** 2
                 loss = rec_err.mean()
                 l1s.append(loss.item())
+            # Uses the UPAE to reconstruct the data
             else:
+                # mean is the reconstructed data, logvar is the variance
                 mean, logvar = model(x)
+                # reconstruction error
                 rec_err = (mean - x) ** 2
                 loss1 = torch.mean(torch.exp(-logvar)*rec_err)
                 loss2 = torch.mean(logvar)
@@ -64,17 +83,23 @@ def train_loop(model, loader, test_loader, opt):
                 l1s.append(rec_err.mean().item())
                 l2s.append(loss2.item())
 
+            # Backpropagation
             optim.zero_grad()
             loss.backward()
             optim.step()
+        # Tests the data for each epoch
         auc = test_for_xray(opt, model, test_loader)
+        # Saves the data in the tensorboard
+        # VAE
         if not opt.u:
+            # Saves the AUC, Reconstruction Error, and Reconstructions of the last batch per epoch
             l1s = np.mean(l1s)
             writer.add_scalar('auc', auc, e)
             writer.add_scalar('rec_err', l1s, e)
             writer.add_images('recons', torch.cat((x, out)).cpu()*0.5+0.5, e)
             print('epochs:{}, recon error:{}'.format(e, l1s))
         else:
+            # Saves the AUC, Reconstruction Error, Variance, Reconstructions, and Variances of the last batch per epoch
             l1s = np.mean(l1s)
             l2s = np.mean(l2s)
             writer.add_scalar('auc', auc, e)
@@ -85,49 +110,57 @@ def train_loop(model, loader, test_loader, opt):
                 (x*0.5+0.5, logvar.exp())).cpu(), e)
             print('epochs:{}, recon error:{}, logvars:{}'.format(e, l1s, l2s))
 
+    # Saves the model
     torch.save(model.state_dict(),
                './models/{}.pth'.format(opt.exp))
 
 
+# Tests the model
 def test_for_xray(opt, model=None, loader=None, plot=False, vae=False):
+    # Loads the model and data
     if model is None:
         model = models.AE(opt.ls, opt.mp, opt.u,
-                                img_size=IMG_SIZE, vae=vae).to(device)
+                                img_size=opt.img_size, vae=vae).to(opt.device)
         model.load_state_dict(torch.load(
             './models/{}.pth'.format(opt.exp)))
     if loader is None:
         loader = xray_data.get_xray_dataloader(
-            1, WORKERS, 'test', dataset=DATASET, img_size=IMG_SIZE)
+            1, WORKERS, 'test', dataset=DATASET[opt.dataset], img_size=opt.img_size)
 
     model.eval()
     with torch.no_grad():
+        # Store the abnormality scores and labels
         y_score, y_true = [], []
+        # Tests the data for each batch
         for bid, (x, label) in tqdm(enumerate(loader)):
-            x = x.to(device)
+            x = x.to(opt.device)
+            # Uses the VAE to reconstruct the data
             if opt.u:
                 out, logvar = model(x)
                 rec_err = (out - x) ** 2
                 res = torch.exp(-logvar) * rec_err
+            # Uses the UPAE to reconstruct the data
             else:
                 out = model(x)
                 rec_err = (out - x) ** 2
                 res = rec_err
 
             res = res.mean(dim=(1,2,3))
-
+            # Stores the abnormality scores and labels
             y_true.append(label.cpu())
             y_score.append(res.cpu().view(-1))
-
+        
         y_true = np.concatenate(y_true)
         y_score = np.concatenate(y_score)
+        # Calculates the AUC
         auc = metrics.roc_auc_score(y_true, y_score)
         print('AUC', auc)
         if plot:
             metrics_at_eer(y_score, y_true)
             plt.figure()
-            plt.hist(y_score[y_true == 0], bins=100,
+            plt.hist(y_score[y_true == 0], bins=20,
                      density=True, color='blue', alpha=0.5)
-            plt.hist(y_score[y_true == 1], bins=100,
+            plt.hist(y_score[y_true == 1], bins=20,
                      density=True, color='red', alpha=0.5)
             plt.figure()
             fpr, tpr, thresholds = metrics.roc_curve(y_true, y_score)
@@ -138,21 +171,29 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False):
             plt.show()
         return auc
 
-
+# Calculates the metrics at the equal error rate
 def metrics_at_eer(y_score, y_true):
+    # Gets the false positive rate, true positive rate, and thresholds
     fpr, tpr, thresholds = metrics.roc_curve(y_true, y_score)
     idx = None
+    min_diff = float('inf')
+    # Finds the threshold that minimizes the difference between the false positive rate and true positive rate
     for i in range(len(fpr)):
         fnr = 1 - tpr[i]
-        if abs(fpr[i] - fnr) <= 5e-3:
+        diff = abs(fpr[i] - fnr)
+        if diff <= 5e-3:
             idx = i
             break
+        elif diff < min_diff:
+            min_diff = diff
+            idx = i
     assert idx is not None
-
+    # Calculates the metrics
     t = thresholds[idx]
     y_pred = np.zeros_like(y_true)
     y_pred[y_score < t] = 0
     y_pred[y_score >= t] = 1
+    # Calculates the metrics
     pres = metrics.precision_score(y_true, y_pred)
     sens = metrics.recall_score(y_true, y_pred, pos_label=1)
     spec = metrics.recall_score(y_true, y_pred, pos_label=0)
@@ -160,24 +201,3 @@ def metrics_at_eer(y_score, y_true):
     print('Error rate:{}'.format(fpr[idx]))
     print('Precision:{} Sensitivity:{} Specificity:{} f1:{}\n'.format(
         pres, sens, spec, f1))
-
-
-if __name__ == '__main__':
-    parser = ArgumentParser()
-    parser.add_argument('--u', dest='u', action='store_true') # use uncertainty
-    parser.add_argument('--gpu', dest='cuda', type=int, default=0) # cuda id
-    parser.add_argument('--exp', dest='exp', type=str, default='ae') # experiment name
-    parser.add_argument('--eval', dest='eval', action='store_true') # test model
-    parser.add_argument('--ls', dest='ls', type=int, default=16) # the output size of encoder
-    parser.add_argument('--mp', dest='mp', type=float, default=1) # multiplier that controls the capacity of AE
-    parser.add_argument('--dataset', dest='dataset', type=int, default=0) # 0: rsna dataset 1: pediatric dataset
-    opt = parser.parse_args()
-    device = torch.device('cuda:{}'.format(opt.cuda))
-    torch.cuda.set_device('cuda:{}'.format(opt.cuda))
-    opt.exp += 'u' if opt.u else ''
-    DATASET = DATASET[opt.dataset]
-    if not opt.eval:
-        print('start ae training...')
-        train()
-    else:
-        test_for_xray(opt, plot=True)
