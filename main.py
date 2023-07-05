@@ -21,7 +21,6 @@ if __name__ == "__main__":
         parser = ArgumentParser()
         for key, value in model_parameters.items():
             parser.add_argument(f"--{key}", dest=key, type=type(value), default=value)
-            print("key: ", key, "value: ", value)
 
         # Parse the arguments
         opt = parser.parse_args(args=[])
