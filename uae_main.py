@@ -112,12 +112,12 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
     # Loads the model and data
     if model is None:
         model = models.AE(opt.ls, opt.mp, opt.u,
-                                img_size=opt.img_size, vae=vae).to(opt.device)
+                                img_size=opt.image_size, vae=vae).to(opt.device)
         model.load_state_dict(torch.load(
             './models/{}.pth'.format(opt.exp)))
     if loader is None:
         loader = xray_data.get_xray_dataloader(
-            1, WORKERS, 'test', dataset=DATASET[opt.dataset], img_size=opt.img_size)
+            1, WORKERS, 'test', dataset=DATASET[opt.dataset], img_size=opt.image_size)
 
     model.eval()
     with torch.no_grad():
