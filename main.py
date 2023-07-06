@@ -5,8 +5,6 @@ from argparse import ArgumentParser
 import json
 
 if __name__ == "__main__":
-    model_name = "Trial_2_UPAE"
-
     # Create Argument parser accept multiple JSON Files
     json_files = ArgumentParser()
     json_files.add_argument('json_files', nargs='+')
