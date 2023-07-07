@@ -30,6 +30,13 @@ class Xray(data.Dataset):
                 self.slices.append(img)
                 self.labels.append(int(label))
         
+        # Shuffle the data
+        np.random.seed(0)
+        indices = np.arange(len(self.slices))
+        np.random.shuffle(indices)
+        self.slices = [self.slices[i] for i in indices]
+        self.labels = [self.labels[i] for i in indices]
+        
 
     def __getitem__(self, index):
         img = self.slices[index]
