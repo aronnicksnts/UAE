@@ -16,12 +16,10 @@ from tensorboardX import SummaryWriter
 from torchvision.utils import save_image
 
 
-
 WORKERS = 4
 torch.backends.cudnn.benchmark = True
 torch.manual_seed(0)
 np.random.seed(0)
-
 
 def train(opt):
     # Sets the device to cuda
@@ -41,7 +39,6 @@ def train(opt):
 
     opt.epochs = EPOCHS
     train_loop(model, loader, test_loader, opt)
-
 
 def train_loop(model, loader, test_loader, opt):
     device = torch.device('cuda:{}'.format(opt.cuda))
@@ -79,7 +76,7 @@ def train_loop(model, loader, test_loader, opt):
             loss.backward()
             optim.step()
         # Tests the data for each epoch
-        auc = test_for_xray(opt, model, test_loader)
+        auc = test_for_xray(opt, model, test_loader, writer=writer, epoch=e)
         # Saves the data in the tensorboard
         # VAE
         if not opt.u:
@@ -107,7 +104,7 @@ def train_loop(model, loader, test_loader, opt):
 
 
 # Tests the model
-def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name="test"):
+def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name="test", writer = None, epoch = None):
     # Loads the model and data
     if model is None:
         device = torch.device('cuda:{}'.format(opt.cuda))
@@ -128,18 +125,26 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
         # Tests the data for each batch
         for bid, (x, label) in tqdm(enumerate(loader)):
             x = x.to(opt.device)
-            # Uses the VAE to reconstruct the data
+            # Uses the UPAE to reconstruct the data
             if opt.u:
                 out, logvar = model(x)
                 rec_err = (out - x) ** 2
                 res = torch.exp(-logvar) * rec_err
-            # Uses the UPAE to reconstruct the data
+            # Uses the VAE to reconstruct the data
             else:
                 out = model(x)
                 rec_err = (out - x) ** 2
                 res = rec_err
 
+            if writer and bid == 0:
+                writer.add_images(f'test_reconstruction', torch.cat((x, out)).cpu()*0.5+0.5, epoch)
+                if opt.u:
+                    writer.add_images(f'test_variance', torch.cat((x*0.5+0.5, logvar.exp())).cpu(), epoch)
+                writer.add_images(f'test_res', res.cpu(), epoch)
+
             res = res.mean(dim=(1,2,3))
+            # Clamp the abnormality scores to 0-5
+            res = torch.clamp(res, 0, 5)
             # Stores the abnormality scores and labels
             y_true.append(label.cpu())
             y_score.append(res.cpu().view(-1))
@@ -150,11 +155,16 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
         auc = metrics.roc_auc_score(y_true, y_score)
         print('AUC', auc)
         if plot:
-            metrics_at_eer(y_score, y_true)
-            plt.hist(y_score[y_true == 0], bins=20,
-                     density=True, color='blue', alpha=0.5)
-            plt.hist(y_score[y_true == 1], bins=20,
-                     density=True, color='red', alpha=0.5)
+            pres, sense, spec, f1, error_rate = metrics_at_eer(y_score, y_true)
+            # # Save the metrics at models/model_results.json by appending
+            with open(f"models/model_results.csv", "a") as f:
+                f.write(f"{opt.exp},{auc},{pres},{sense},{spec},{f1},{error_rate}\n")
+
+            # Plot the histogram
+            plt.hist(y_score[y_true == 0], bins=30,
+                     density=False, color='blue', alpha=0.5)
+            plt.hist(y_score[y_true == 1], bins=30,
+                     density=False, color='red', alpha=0.5)
             # Create legend
             labels = ['Normal', 'Abnormal']
             plt.legend(labels)
@@ -163,7 +173,6 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
             plt.savefig(f"images/{plot_name}_hist.png", dpi=300, bbox_inches='tight')
             plt.clf()
 
-
             fpr, tpr, thresholds = metrics.roc_curve(y_true, y_score)
             plt.plot(fpr, tpr)
             plt.plot([0, 1], [0, 1], 'k--')
@@ -171,6 +180,7 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
             plt.ylabel('True Positive Rate')
             plt.title('ROC Curve')
             plt.savefig(f"images/{plot_name}_fprtpr.png", dpi=300, bbox_inches='tight')
+            plt.clf()
         return auc
 
 # Calculates the metrics at the equal error rate
@@ -203,3 +213,4 @@ def metrics_at_eer(y_score, y_true):
     print('Error rate:{}'.format(fpr[idx]))
     print('Precision:{} Sensitivity:{} Specificity:{} f1:{}\n'.format(
         pres, sens, spec, f1))
+    return pres, sens, spec, f1, fpr[idx]
