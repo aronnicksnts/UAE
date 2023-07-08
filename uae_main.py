@@ -36,15 +36,23 @@ def train(opt):
         opt.batchsize, WORKERS, 'train', img_size=opt.image_size, dataset=opt.dataset)
     test_loader = xray_data.get_xray_dataloader(
         opt.batchsize, WORKERS, 'test', img_size=opt.image_size, dataset=opt.dataset)
+    valid_loader = xray_data.get_xray_dataloader(
+        opt.batchsize, WORKERS, 'valid', img_size=opt.image_size, dataset=opt.dataset)
 
     opt.epochs = EPOCHS
-    train_loop(model, loader, test_loader, opt)
+    train_loop(model, loader, test_loader, valid_loader, opt)
 
-def train_loop(model, loader, test_loader, opt):
+def train_loop(model, loader, test_loader, valid_loader, opt):
     device = torch.device('cuda:{}'.format(opt.cuda))
     print(opt.exp)
     optim = torch.optim.Adam(model.parameters(), 5e-4, betas=(0.5, 0.999))
     writer = SummaryWriter('log/%s' % opt.exp)
+
+    # Early Stopping Parameters
+    epochs_last_improvement = 0
+    best_auc = 0.0
+    best_epoch = 0
+    early_stop = False
     # Trains the data for each epoch
     for e in tqdm(range(opt.epochs)):
         l1s, l2s = [], []
@@ -77,6 +85,20 @@ def train_loop(model, loader, test_loader, opt):
             optim.step()
         # Tests the data for each epoch
         auc = test_for_xray(opt, model, test_loader, writer=writer, epoch=e)
+        valid_auc = test_for_xray(opt, model, valid_loader, plot_name="valid", writer=writer, epoch=e)
+
+        # Early Stopping
+        if auc > best_auc:
+            epochs_last_improvement = 0
+            best_auc = auc
+            best_epoch = e
+            torch.save(model.state_dict(), 'models/%s.pt' % opt.exp)
+        else:
+            epochs_last_improvement += 1
+            if epochs_last_improvement >= opt.patience:
+                early_stop = True
+                break
+
         # Saves the data in the tensorboard
         # VAE
         if not opt.u:
@@ -93,14 +115,15 @@ def train_loop(model, loader, test_loader, opt):
             writer.add_scalar('auc', auc, e)
             writer.add_scalar('rec_err', l1s, e)
             writer.add_scalar('logvars', l2s, e)
-            writer.add_images('recons', torch.cat((x, mean)).cpu()*0.5+0.5, e)
-            writer.add_images('vars', torch.cat(
+            writer.add_images('reconstruction', torch.cat((x, mean)).cpu()*0.5+0.5, e)
+            writer.add_images('variance', torch.cat(
                 (x*0.5+0.5, logvar.exp())).cpu(), e)
             print('epochs:{}, recon error:{}, logvars:{}'.format(e, l1s, l2s))
 
     # Saves the model
-    torch.save(model.state_dict(),
-               './models/{}.pth'.format(opt.exp))
+    if not early_stop:
+        torch.save(model.state_dict(),
+                './models/{}.pth'.format(opt.exp))
 
 
 # Tests the model
@@ -137,10 +160,10 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
                 res = rec_err
 
             if writer and bid == 0:
-                writer.add_images(f'test_reconstruction', torch.cat((x, out)).cpu()*0.5+0.5, epoch)
+                writer.add_images(f'{plot_name}_reconstruction', torch.cat((x, out)).cpu()*0.5+0.5, epoch)
                 if opt.u:
-                    writer.add_images(f'test_variance', torch.cat((x*0.5+0.5, logvar.exp())).cpu(), epoch)
-                writer.add_images(f'test_res', res.cpu(), epoch)
+                    writer.add_images(f'{plot_name}_variance', torch.cat((x*0.5+0.5, logvar.exp())).cpu(), epoch)
+                writer.add_images(f'{plot_name}_res', res.cpu(), epoch)
 
             res = res.mean(dim=(1,2,3))
             # Clamp the abnormality scores to 0-5
@@ -151,8 +174,14 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
         
         y_true = np.concatenate(y_true)
         y_score = np.concatenate(y_score)
-        # Calculates the AUC
         auc = metrics.roc_auc_score(y_true, y_score)
+
+        # Add histogram in tensorboard
+        if writer:
+            writer.add_scalar(f'{plot_name}_auc', auc, epoch)
+            writer.add_histogram(f'{plot_name}_scores', y_score, epoch)
+            writer.add_histogram(f'{plot_name}_labels', y_true, epoch)
+
         print('AUC', auc)
         if plot:
             pres, sense, spec, f1, error_rate = metrics_at_eer(y_score, y_true)
