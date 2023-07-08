@@ -166,6 +166,7 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
                 if opt.u:
                     writer.add_images(f'{plot_name}_variance', torch.cat((x*0.5+0.5, logvar.exp())).cpu(), epoch)
                 writer.add_images(f'{plot_name}_res', res.cpu(), epoch)
+                writer.add_scalar(f'{plot_name}_rec_err', res.mean(), epoch)
 
             res = res.mean(dim=(1,2,3))
             # Clamp the abnormality scores to 0-5
@@ -183,8 +184,10 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
         # Add histogram in tensorboard
         if writer:
             writer.add_scalar(f'{plot_name}_auc', auc, epoch)
-            writer.add_histogram(f'{plot_name}_scores', y_score, epoch)
-            writer.add_histogram(f'{plot_name}_labels', y_true, epoch)
+            # Add y_score histogram where y_true is 0
+            writer.add_histogram(f'{plot_name}_y_score_0', y_score[y_true == 0], epoch)
+            # Add y_score histogram where y_true is 1
+            writer.add_histogram(f'{plot_name}_y_score_1', y_score[y_true == 1], epoch)
 
         print('AUC', auc)
         if plot:
