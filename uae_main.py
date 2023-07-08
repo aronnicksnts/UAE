@@ -94,7 +94,7 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
             epochs_last_improvement = 0
             best_auc = auc
             best_epoch = e
-            torch.save(model.state_dict(), 'models/%s.pt' % opt.exp)
+            torch.save(model.state_dict(), 'models/%s.pth' % opt.exp)
         else:
             epochs_last_improvement += 1
             if epochs_last_improvement >= opt.patience:
