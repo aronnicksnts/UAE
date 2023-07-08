@@ -45,7 +45,8 @@ def train(opt):
 def train_loop(model, loader, test_loader, valid_loader, opt):
     device = torch.device('cuda:{}'.format(opt.cuda))
     print(opt.exp)
-    optim = torch.optim.Adam(model.parameters(), 5e-4, betas=(0.5, 0.999))
+
+    optim = torch.optim.Adam(model.parameters(), opt.lr, betas=(0.5, 0.999))
     writer = SummaryWriter('log/%s' % opt.exp)
 
     # Early Stopping Parameters
@@ -85,7 +86,8 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
             optim.step()
         # Tests the data for each epoch
         auc = test_for_xray(opt, model, test_loader, writer=writer, epoch=e)
-        valid_auc = test_for_xray(opt, model, valid_loader, plot_name="valid", writer=writer, epoch=e)
+        # Test data with validation set
+        test_for_xray(opt, model, valid_loader, plot_name="valid", writer=writer, epoch=e)
 
         # Early Stopping
         if auc > best_auc:
@@ -172,6 +174,8 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
             y_true.append(label.cpu())
             y_score.append(res.cpu().view(-1))
         
+        if plot_name == "valid":
+            return
         y_true = np.concatenate(y_true)
         y_score = np.concatenate(y_score)
         auc = metrics.roc_auc_score(y_true, y_score)
