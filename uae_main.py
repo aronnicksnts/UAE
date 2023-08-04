@@ -66,19 +66,24 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
             # Uses the VAE to reconstruct the data
             if not opt.u:
                 out = model(x)
-                rec_err = (out - x) ** 2
-                loss = rec_err.mean()
+                if opt.loss_type == "MSE":
+                    loss = mse_loss(x, out)
+                elif opt.loss_type == "SSIM":
+                    loss = ssim_loss(x, out)
                 l1s.append(loss.item())
             # Uses the UPAE to reconstruct the data
             else:
-                # mean is the reconstructed data, logvar is the variance
-                mean, logvar = model(x)
-                # reconstruction error
-                rec_err = (mean - x) ** 2
-                loss1 = torch.mean(torch.exp(-logvar)*rec_err)
-                loss2 = torch.mean(logvar)
+                # out is the reconstructed data, logvar is the variance
+                out, logvar = model(x)
+
+                if opt.loss_type == "MSE":
+                    loss1 = mse_loss(x, out)
+                elif opt.loss_type == "SSIM":
+                    loss1 = ssim_loss(x, out)
+
+                loss2 = pixel_wise_logarithm(logvar)
                 loss = loss1 + loss2
-                l1s.append(rec_err.mean().item())
+                l1s.append(loss1.mean().item())
                 l2s.append(loss2.item())
 
             # Backpropagation
@@ -118,8 +123,8 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
             writer.add_scalar('auc', auc, e)
             writer.add_scalar('rec_err', l1s, e)
             writer.add_scalar('logvars', l2s, e)
-            writer.add_images('reconstruction', torch.cat((x, mean)).cpu()*0.5+0.5, e)
-            writer.add_images('variance', torch.cat(
+            writer.add_images('reconstruction', torch.cat((x, out)).cpu()*0.5+0.5, e)
+            writer.add_images('pixel_wise_uncertainty', torch.cat(
                 (x*0.5+0.5, logvar.exp())).cpu(), e)
             print('epochs:{}, recon error:{}, logvars:{}'.format(e, l1s, l2s))
 
@@ -152,20 +157,30 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
         for bid, (x, label) in tqdm(enumerate(loader)):
             x = x.to(opt.device)
             # Uses the UPAE to reconstruct the data
-            if opt.u:
-                out, logvar = model(x)
-                rec_err = (out - x) ** 2
-                res = torch.exp(-logvar) * rec_err
-            # Uses the VAE to reconstruct the data
-            else:
+            if not opt.u:
                 out = model(x)
-                rec_err = (out - x) ** 2
-                res = rec_err
+                if opt.loss_type == "MSE":
+                    loss = mse_loss(x, out)
+                elif opt.loss_type == "SSIM":
+                    loss = ssim_loss(x, out)
+            # Uses the UPAE to reconstruct the data
+            else:
+                # out is the reconstructed data, logvar is the variance
+                out, logvar = model(x)
+
+                if opt.loss_type == "MSE":
+                    loss1 = mse_loss(x, out)
+                elif opt.loss_type == "SSIM":
+                    loss1 = ssim_loss(x, out)
+
+                loss2 = pixel_wise_logarithm(logvar)
+                loss = loss1 + loss2
+
 
             if writer and bid == 0:
                 writer.add_images(f'{plot_name}_reconstruction', torch.cat((x, out)).cpu()*0.5+0.5, epoch)
                 if opt.u:
-                    writer.add_images(f'{plot_name}_variance', torch.cat((x*0.5+0.5, logvar.exp())).cpu(), epoch)
+                    writer.add_images(f'{plot_name}_pixel_wise_uncertainty', torch.cat((x*0.5+0.5, logvar.exp())).cpu(), epoch)
                 writer.add_images(f'{plot_name}_res', res.cpu(), epoch)
                 writer.add_scalar(f'{plot_name}_rec_err', res.mean(), epoch)
 
@@ -274,12 +289,11 @@ def s2_score(image_i, image_j, c2=1e-6):
     s2 = numerator / denominator
     return s2
 
-def ssim_loss(x, mu_x, sigma_x):
+def ssim_loss(x, mu_x):
     """Calculates the SSIM loss between the original data x and its reconstruction mu_x
     Args:
         x: The original data
-        mu_x: The reconstruction of the original data
-        sigma_x: The variance of the reconstruction"""
+        mu_x: The reconstruction of the original data"""
     
     # Calculate the SSIM distance between the original data x and its reconstruction mu_x
     ssim_distance = torch.sqrt(2 - s1_score(x, mu_x) - s2_score(x, mu_x))
@@ -294,3 +308,6 @@ def pixel_wise_logarithm(sigma_x):
 def mse_loss(x, mu_x):
     """Calculates the MSE loss between the original data x and its reconstruction mu_x"""
     return torch.mean((x - mu_x) ** 2)
+
+def get_loss_values(x, opt):
+    """Gets the loss values for the data x"""
