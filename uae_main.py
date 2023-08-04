@@ -42,6 +42,7 @@ def train(opt):
     opt.epochs = EPOCHS
     train_loop(model, loader, test_loader, valid_loader, opt)
 
+
 def train_loop(model, loader, test_loader, valid_loader, opt):
     device = torch.device('cuda:{}'.format(opt.cuda))
     print(opt.exp)
@@ -250,3 +251,42 @@ def metrics_at_eer(y_score, y_true):
     print('Precision:{} Sensitivity:{} Specificity:{} f1:{}\n'.format(
         pres, sens, spec, f1))
     return pres, sens, spec, f1, fpr[idx]
+
+
+def s1_score(image_i, image_j, c1=1e-6):
+    """Calculates the first term of the SSIM score between image_i and image_j
+    Args:
+        image_i: The first image
+        image_j: The second image
+        c1: A constant used to stabilize the division"""
+    mu_x_i = torch.mean(image_i)
+    mu_x_j = torch.mean(image_j)
+    numerator = 2 * mu_x_i * mu_x_j + c1
+    denominator = mu_x_i ** 2 + mu_x_j ** 2 + c1
+    s1 = numerator / denominator
+    return s1
+
+def s2_score(image_i, image_j, c2=1e-6):
+    """Calculates the second term of the SSIM score between image_i and image_j"""
+    covariance = torch.cov(image_i.ravel(), image_j.ravel())[0, 1]
+    numerator = 2 * covariance + c2
+    denominator = torch.var(image_i) + torch.var(image_j) + c2
+    s2 = numerator / denominator
+    return s2
+
+def ssim_loss(x, mu_x, sigma_x):
+    """Calculates the SSIM loss between the original data x and its reconstruction mu_x
+    Args:
+        x: The original data
+        mu_x: The reconstruction of the original data
+        sigma_x: The variance of the reconstruction"""
+    
+    # Calculate the SSIM distance between the original data x and its reconstruction mu_x
+    ssim_distance = torch.sqrt(2 - s1_score(x, mu_x) - s2_score(x, mu_x))
+
+    return ssim_distance
+
+
+def pixel_wise_logarithm(sigma_x):
+    """Calculates the pixel wise logarithm of the variance sigma_x"""
+    return torch.log(sigma_x ** 2)
