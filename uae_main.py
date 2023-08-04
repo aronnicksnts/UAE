@@ -1,17 +1,12 @@
 import models
-import torchvision
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-import os
 import xray_data
 import matplotlib.pyplot as plt
-import random
-from sklearn import metrics, neighbors, mixture, svm
-from sklearn import decomposition, manifold
+from sklearn import metrics
 from tqdm import tqdm
-from argparse import ArgumentParser
 from tensorboardX import SummaryWriter
 from torchvision.utils import save_image
 
