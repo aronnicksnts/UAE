@@ -290,3 +290,7 @@ def ssim_loss(x, mu_x, sigma_x):
 def pixel_wise_logarithm(sigma_x):
     """Calculates the pixel wise logarithm of the variance sigma_x"""
     return torch.log(sigma_x ** 2)
+
+def mse_loss(x, mu_x):
+    """Calculates the MSE loss between the original data x and its reconstruction mu_x"""
+    return torch.mean((x - mu_x) ** 2)
