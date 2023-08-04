@@ -308,6 +308,3 @@ def pixel_wise_logarithm(sigma_x):
 def mse_loss(x, mu_x):
     """Calculates the MSE loss between the original data x and its reconstruction mu_x"""
     return torch.mean((x - mu_x) ** 2)
-
-def get_loss_values(x, opt):
-    """Gets the loss values for the data x"""
