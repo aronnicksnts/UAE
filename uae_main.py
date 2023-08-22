@@ -111,6 +111,7 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
             l1s = np.mean(l1s)
             l2s = np.mean(l2s)
             writer.add_scalar('auc', auc, e)
+            writer.add_scalar('loss1_pre', loss1_pre.mean(), e)
             writer.add_scalar('rec_err', l1s, e)
             writer.add_scalar('logvars', l2s, e)
             writer.add_images('reconstruction', torch.cat((x, out)).cpu()*0.5+0.5, e)
@@ -119,7 +120,7 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
             print('epochs:{}, recon error:{}, logvars:{}'.format(e, l1s, l2s))
 
         # Early Stopping
-        if loss1 < loss1_best:
+        if loss1_pre.mean() < loss1_best:
             epochs_last_improvement = 0
             loss1_best = loss1
             best_epoch = e
