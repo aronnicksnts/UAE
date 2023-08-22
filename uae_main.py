@@ -121,7 +121,7 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
         # Early Stopping
         if loss1 < loss1_best:
             epochs_last_improvement = 0
-            loss1_best = auc
+            loss1_best = loss1
             best_epoch = e
             torch.save(model.state_dict(), 'models/%s.pth' % opt.exp)
         else:
@@ -172,10 +172,10 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
                 out = model(x)
                 if opt.loss_type == 'MSE':
                     loss = mse_loss(x, out)
-                    res = torch.exp(-logvar) * loss
+                    res = loss
                 elif opt.loss_type == 'SSIM':
                     loss = ssim_loss(x, out)
-                    res = torch.exp(-logvar) * loss
+                    res = loss
 
             if writer and bid == 0:
                 writer.add_images(f'{plot_name}_reconstruction', torch.cat((x, out)).cpu()*0.5+0.5, epoch)
