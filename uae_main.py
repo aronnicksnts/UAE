@@ -51,7 +51,7 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
 
     # Early Stopping Parameters
     epochs_last_improvement = 0
-    best_auc = 0.0
+    loss1_best = float('inf')
     best_epoch = 0
     early_stop = False
     # Trains the data for each epoch
@@ -66,10 +66,10 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
             if not opt.u:
                 out = model(x)
                 if opt.loss_type == 'MSE':
-                    loss1 = mse_loss(x, out)
+                    loss1_pre = mse_loss(x, out)
                     loss1 = torch.mean(loss1)
                 elif opt.loss_type == 'SSIM':
-                    loss1 = ssim_loss(x, out)
+                    loss1_pre = ssim_loss(x, out)
                     loss1 = torch.mean(loss1)
                 l1s.append(loss1.item())
             # Uses the UPAE to reconstruct the data
@@ -97,18 +97,6 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
         # Test data with validation set
         test_for_xray(opt, model, valid_loader, plot_name="valid", writer=writer, epoch=e)
 
-        # Early Stopping
-        if auc > best_auc:
-            epochs_last_improvement = 0
-            best_auc = auc
-            best_epoch = e
-            torch.save(model.state_dict(), 'models/%s.pth' % opt.exp)
-        else:
-            epochs_last_improvement += 1
-            if epochs_last_improvement >= opt.patience:
-                early_stop = True
-                break
-
         # Saves the data in the tensorboard
         # VAE
         if not opt.u:
@@ -129,6 +117,18 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
             writer.add_images('variance', torch.cat(
                 (x*0.5+0.5, logvar.exp())).cpu(), e)
             print('epochs:{}, recon error:{}, logvars:{}'.format(e, l1s, l2s))
+
+        # Early Stopping
+        if loss1 < loss1_best:
+            epochs_last_improvement = 0
+            loss1_best = auc
+            best_epoch = e
+            torch.save(model.state_dict(), 'models/%s.pth' % opt.exp)
+        else:
+            epochs_last_improvement += 1
+            if epochs_last_improvement >= opt.patience:
+                early_stop = True
+                break
 
     # Saves the model
     if not early_stop:
