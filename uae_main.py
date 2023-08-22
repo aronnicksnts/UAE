@@ -1,12 +1,17 @@
 import models
+import torchvision
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import os
 import xray_data
 import matplotlib.pyplot as plt
-from sklearn import metrics
+import random
+from sklearn import metrics, neighbors, mixture, svm
+from sklearn import decomposition, manifold
 from tqdm import tqdm
+from argparse import ArgumentParser
 from tensorboardX import SummaryWriter
 from torchvision.utils import save_image
 
@@ -37,7 +42,6 @@ def train(opt):
     opt.epochs = EPOCHS
     train_loop(model, loader, test_loader, valid_loader, opt)
 
-
 def train_loop(model, loader, test_loader, valid_loader, opt):
     device = torch.device('cuda:{}'.format(opt.cuda))
     print(opt.exp)
@@ -61,24 +65,27 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
             # Uses the VAE to reconstruct the data
             if not opt.u:
                 out = model(x)
-                if opt.loss_type == "MSE":
-                    loss = mse_loss(x, out)
-                elif opt.loss_type == "SSIM":
-                    loss = ssim_loss(x, out)
-                l1s.append(loss.item())
+                if opt.loss_type == 'MSE':
+                    loss1 = mse_loss(x, out)
+                    loss1 = torch.mean(loss1)
+                elif opt.loss_type == 'SSIM':
+                    loss1 = ssim_loss(x, out)
+                    loss1 = torch.mean(loss1)
+                l1s.append(loss1.item())
             # Uses the UPAE to reconstruct the data
             else:
-                # out is the reconstructed data, logvar is the variance
+                # mean is the reconstructed data, logvar is the variance
                 out, logvar = model(x)
+                if opt.loss_type == 'MSE':
+                    loss1_pre = mse_loss(x, out)
+                    loss1 = torch.mean(torch.exp(-logvar)*loss1_pre)
+                elif opt.loss_type == 'SSIM':
+                    loss1_pre = ssim_loss(x, out)
+                    loss1 = torch.mean(torch.exp(-logvar)*loss1_pre)
 
-                if opt.loss_type == "MSE":
-                    loss1 = mse_loss(x, out)
-                elif opt.loss_type == "SSIM":
-                    loss1 = ssim_loss(x, out)
-
-                loss2 = pixel_wise_logarithm(logvar)
+                loss2 = torch.mean(logvar)
                 loss = loss1 + loss2
-                l1s.append(loss1.mean().item())
+                l1s.append(loss1_pre.mean().item())
                 l2s.append(loss2.item())
 
             # Backpropagation
@@ -119,7 +126,7 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
             writer.add_scalar('rec_err', l1s, e)
             writer.add_scalar('logvars', l2s, e)
             writer.add_images('reconstruction', torch.cat((x, out)).cpu()*0.5+0.5, e)
-            writer.add_images('pixel_wise_uncertainty', torch.cat(
+            writer.add_images('variance', torch.cat(
                 (x*0.5+0.5, logvar.exp())).cpu(), e)
             print('epochs:{}, recon error:{}, logvars:{}'.format(e, l1s, l2s))
 
@@ -152,30 +159,28 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
         for bid, (x, label) in tqdm(enumerate(loader)):
             x = x.to(opt.device)
             # Uses the UPAE to reconstruct the data
-            if not opt.u:
-                out = model(x)
-                if opt.loss_type == "MSE":
-                    loss = mse_loss(x, out)
-                elif opt.loss_type == "SSIM":
-                    loss = ssim_loss(x, out)
-            # Uses the UPAE to reconstruct the data
-            else:
-                # out is the reconstructed data, logvar is the variance
+            if opt.u:
                 out, logvar = model(x)
-
-                if opt.loss_type == "MSE":
-                    loss1 = mse_loss(x, out)
-                elif opt.loss_type == "SSIM":
-                    loss1 = ssim_loss(x, out)
-
-                loss2 = pixel_wise_logarithm(logvar)
-                loss = loss1 + loss2
-
+                if opt.loss_type == 'MSE':
+                    loss = mse_loss(x, out)
+                    res = torch.exp(-logvar) * loss
+                elif opt.loss_type == 'SSIM':
+                    loss = ssim_loss(x, out)
+                    res = torch.exp(-logvar) * loss
+            # Uses the VAE to reconstruct the data
+            else:
+                out = model(x)
+                if opt.loss_type == 'MSE':
+                    loss = mse_loss(x, out)
+                    res = torch.exp(-logvar) * loss
+                elif opt.loss_type == 'SSIM':
+                    loss = ssim_loss(x, out)
+                    res = torch.exp(-logvar) * loss
 
             if writer and bid == 0:
                 writer.add_images(f'{plot_name}_reconstruction', torch.cat((x, out)).cpu()*0.5+0.5, epoch)
                 if opt.u:
-                    writer.add_images(f'{plot_name}_pixel_wise_uncertainty', torch.cat((x*0.5+0.5, logvar.exp())).cpu(), epoch)
+                    writer.add_images(f'{plot_name}_variance', torch.cat((x*0.5+0.5, logvar.exp())).cpu(), epoch)
                 writer.add_images(f'{plot_name}_res', res.cpu(), epoch)
                 writer.add_scalar(f'{plot_name}_rec_err', res.mean(), epoch)
 
@@ -263,25 +268,43 @@ def metrics_at_eer(y_score, y_true):
     return pres, sens, spec, f1, fpr[idx]
 
 
+
 def s1_score(image_i, image_j, c1=1e-6):
     """Calculates the first term of the SSIM score between image_i and image_j
     Args:
         image_i: The first image
         image_j: The second image
         c1: A constant used to stabilize the division"""
-    mu_x_i = torch.mean(image_i)
-    mu_x_j = torch.mean(image_j)
+    mu_x_i = image_i
+    mu_x_j = image_j
     numerator = 2 * mu_x_i * mu_x_j + c1
     denominator = mu_x_i ** 2 + mu_x_j ** 2 + c1
     s1 = numerator / denominator
     return s1
 
+
+def compute_covariance_between_images(image_tensor1, image_tensor2, epsilon = 1e-6):
+    # Reshape the image tensors to a 2D shape (num_pixels, 1)
+    flattened_image1 = image_tensor1.reshape(-1, 1)
+    flattened_image2 = image_tensor2.reshape(-1, 1)
+
+    # Center the data
+    centered_data1 = flattened_image1 - torch.mean(flattened_image1, dim=0, keepdim=True) + epsilon
+    centered_data2 = flattened_image2 - torch.mean(flattened_image2, dim=0, keepdim=True) + epsilon
+ 
+    # Calculate the covariance matrix between the two images
+    covariance_matrix = torch.matmul(centered_data1.t(), centered_data2) / (centered_data1.shape[0] - 1)
+
+    return covariance_matrix
+
+
 def s2_score(image_i, image_j, c2=1e-6):
     """Calculates the second term of the SSIM score between image_i and image_j"""
-    covariance = torch.cov(image_i.ravel(), image_j.ravel())[0, 1]
+    covariance = compute_covariance_between_images(image_i, image_j)
     numerator = 2 * covariance + c2
     denominator = torch.var(image_i) + torch.var(image_j) + c2
     s2 = numerator / denominator
+
     return s2
 
 def ssim_loss(x, mu_x):
@@ -292,7 +315,7 @@ def ssim_loss(x, mu_x):
     
     # Calculate the SSIM distance between the original data x and its reconstruction mu_x
     ssim_distance = torch.sqrt(2 - s1_score(x, mu_x) - s2_score(x, mu_x))
-
+    ssim_distance = torch.where(torch.isnan(ssim_distance), torch.zeros_like(ssim_distance) + 0, ssim_distance)
     return ssim_distance
 
 
@@ -302,4 +325,4 @@ def pixel_wise_logarithm(sigma_x):
 
 def mse_loss(x, mu_x):
     """Calculates the MSE loss between the original data x and its reconstruction mu_x"""
-    return torch.mean((x - mu_x) ** 2)
+    return ((x - mu_x) ** 2)

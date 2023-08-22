@@ -8,8 +8,15 @@ from PIL import Image
 from tqdm import tqdm
 from torchvision import transforms, datasets
 from torch.utils import data
+import cv2
 
 DATA_PATH = 'datasets'
+
+def apply_clahe(image):
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    clahe_image = clahe.apply(image)
+
+    return clahe_image
 
 class Xray(data.Dataset):
     def __init__(self, main_path, img_size=64, transform=None):
@@ -27,6 +34,8 @@ class Xray(data.Dataset):
                 data = sitk.ReadImage(main_path+'/'+label + '/' + file_name)
                 data = sitk.GetArrayFromImage(data).squeeze()
                 img = Image.fromarray(data).convert('L').resize((img_size,img_size), resample=Image.BILINEAR)
+                img = apply_clahe(np.array(img))
+                img = Image.fromarray(img).convert('L')
                 self.slices.append(img)
                 self.labels.append(int(label))
         
