@@ -67,7 +67,7 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
                 out = model(x)
                 if opt.loss_type == 'MSE':
                     loss1_pre = mse_loss(x, out)
-                    loss1 = torch.mean(loss1)
+                    loss1 = torch.mean(loss1_pre)
                 elif opt.loss_type == 'SSIM':
                     loss1_pre = ssim_loss(x, out)
                     loss1 = torch.mean(loss1)
@@ -187,7 +187,7 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
 
             res = res.mean(dim=(1,2,3))
             # Clamp the abnormality scores to 0-5
-            res = torch.clamp(res, 0, 5)
+            # res = torch.clamp(res, 0, 5)
             # Stores the abnormality scores and labels
             y_true.append(label.cpu())
             y_score.append(res.cpu().view(-1))
