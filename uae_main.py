@@ -63,24 +63,28 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
             x = x.to(device)
             x.requires_grad = False
             # Uses the VAE to reconstruct the data
+            
             if not opt.u:
                 out = model(x)
+                
                 if opt.loss_type == 'MSE':
-                    loss1_pre = mse_loss(x, out)
+                    loss1_pre = curr_mse_loss
                     loss1 = torch.mean(loss1_pre)
                 elif opt.loss_type == 'SSIM':
-                    loss1_pre = ssim_loss(x, out)
+                    loss1_pre = curr_ssim_loss
                     loss1 = torch.mean(loss1)
                 l1s.append(loss1.item())
             # Uses the UPAE to reconstruct the data
             else:
                 # mean is the reconstructed data, logvar is the variance
                 out, logvar = model(x)
+                curr_mse_loss = mse_loss(x, out)
+                curr_ssim_loss = ssim_loss(x, out)
                 if opt.loss_type == 'MSE':
-                    loss1_pre = mse_loss(x, out)
+                    loss1_pre = curr_mse_loss
                     loss1 = torch.mean(torch.exp(-logvar)*loss1_pre)
                 elif opt.loss_type == 'SSIM':
-                    loss1_pre = ssim_loss(x, out)
+                    loss1_pre = curr_ssim_loss
                     loss1 = torch.mean(torch.exp(-logvar)*loss1_pre)
 
                 loss2 = torch.mean(logvar)
@@ -99,13 +103,18 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
 
         # Saves the data in the tensorboard
         # VAE
+        mean_mse = torch.mean(curr_mse_loss)
+        mean_ssim = torch.mean(curr_ssim_loss)
         if not opt.u:
+            
             # Saves the AUC, Reconstruction Error, and Reconstructions of the last batch per epoch
             l1s = np.mean(l1s)
             writer.add_scalar('auc', auc, e)
             writer.add_scalar('rec_err', l1s, e)
             writer.add_images('recons', torch.cat((x, out)).cpu()*0.5+0.5, e)
-            print('epochs:{}, recon error:{}'.format(e, l1s))
+            writer.add_scalar('mse_loss', mean_mse, e)
+            writer.add_scalar('ssim_loss', mean_ssim, e)
+            print('epochs:{}, recon error:{}, mse_loss: {}, ssim_loss: {}'.format(e, l1s, mean_mse, mean_ssim))
         else:
             # Saves the AUC, Reconstruction Error, Variance, Reconstructions, and Variances of the last batch per epoch
             l1s = np.mean(l1s)
@@ -113,11 +122,14 @@ def train_loop(model, loader, test_loader, valid_loader, opt):
             writer.add_scalar('auc', auc, e)
             writer.add_scalar('loss1_pre', loss1_pre.mean(), e)
             writer.add_scalar('rec_err', l1s, e)
+            writer.add_scalar('mse_loss', mean_mse, e)
+            writer.add_scalar('ssim_loss', mean_ssim, e)
             writer.add_scalar('logvars', l2s, e)
             writer.add_images('reconstruction', torch.cat((x, out)).cpu()*0.5+0.5, e)
             writer.add_images('variance', torch.cat(
                 (x*0.5+0.5, logvar.exp())).cpu(), e)
-            print('epochs:{}, recon error:{}, logvars:{}'.format(e, l1s, l2s))
+            print('epochs:{}, recon error:{}, logvars:{}, mse_loss: {}, ssim_loss: {}'.format(e, l1s, l2s, mean_mse,
+                                                                                              mean_ssim))
 
         # Early Stopping
         if loss1_pre.mean() < loss1_best:
@@ -160,22 +172,28 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
         for bid, (x, label) in tqdm(enumerate(loader)):
             x = x.to(opt.device)
             # Uses the UPAE to reconstruct the data
+            
             if opt.u:
                 out, logvar = model(x)
+                curr_mse_loss = mse_loss(x, out)
+                curr_ssim_loss = ssim_loss(x, out)
                 if opt.loss_type == 'MSE':
-                    loss = mse_loss(x, out)
+                    loss = curr_mse_loss
                     res = torch.exp(-logvar) * loss
+                    
                 elif opt.loss_type == 'SSIM':
-                    loss = ssim_loss(x, out)
+                    loss = curr_ssim_loss
                     res = torch.exp(-logvar) * loss
             # Uses the VAE to reconstruct the data
             else:
                 out = model(x)
+                curr_mse_loss = mse_loss(x, out)
+                curr_ssim_loss = ssim_loss(x, out)
                 if opt.loss_type == 'MSE':
-                    loss = mse_loss(x, out)
+                    loss = curr_mse_loss
                     res = loss
                 elif opt.loss_type == 'SSIM':
-                    loss = ssim_loss(x, out)
+                    loss = curr_ssim_loss
                     res = loss
 
             if writer and bid == 0:
@@ -184,6 +202,8 @@ def test_for_xray(opt, model=None, loader=None, plot=False, vae=False, plot_name
                     writer.add_images(f'{plot_name}_variance', torch.cat((x*0.5+0.5, logvar.exp())).cpu(), epoch)
                 writer.add_images(f'{plot_name}_res', res.cpu(), epoch)
                 writer.add_scalar(f'{plot_name}_rec_err', res.mean(), epoch)
+                writer.add_scalar(f'{plot_name}_mse_loss', torch.mean(curr_mse_loss), epoch)
+                writer.add_scalar(f'{plot_name}_ssim_loss', torch.mean(curr_ssim_loss), epoch)
 
             res = res.mean(dim=(1,2,3))
             # Clamp the abnormality scores to 0-5
